@@ -1,0 +1,178 @@
+from docplex.mp.model import Model
+import numpy as np
+
+def solve_vrptw(n, D, q, Q, s, t, T, V):
+    """
+    Solve the VRPTW problem using the branch-and-bound method.
+
+    Parameters:
+    n (int): Number of customers (including the depot)
+    D (numpy.ndarray): Distance matrix
+    q (numpy.ndarray): Demand vector
+    Q (int): Vehicle capacity
+    s (numpy.ndarray): Service time vector
+    t (numpy.ndarray): Time window start vector
+    T (numpy.ndarray): Time window end vector
+    V (int): Number of available vehicles
+
+    """
+    # Create the model
+    model = Model(name = 'VRPTW')
+
+    # Define the decision variables
+    x = model.binary_var_cube(n, n, V, name='x') # whether vehicle k travels between customer i and customer j
+    ta = model.continuous_var_list(n, name='ta') # arrival time at node i
+    w = model.binary_var_list(n, name='w') # wait time at node i
+
+    # Define the objective function
+    obj = sum(D[i, j] * x[i, j, k] for i in range(n) for j in range(n) if i != j for k in range(V))
+
+    model.minimize(obj)
+
+    
+    
+    ###################              Define the constraints               #############
+    
+    # Number of Vehicles Constraint
+    model.add_constraint(sum(x[0, j, k] for k in range (V) for j in range(1, n)) <= V)
+    
+    # Some constraint    
+    for k in range(V):
+        model.add_constraint(sum(x[0, j, k] for j in range(1, n)) == sum(x[j, 0, k] for j in range(1, n)))
+        model.add_constraint(sum(x[0, j, k] for j in range(1, n)) <= 1)
+        
+        
+    # Entry - Exit constraints
+    for i in range(1, n):
+        model.add_constraint(sum(x[i, j, k] for j in range(n) for k in range(V)) == 1)
+    for j in range(1, n):
+        model.add_constraint(sum(x[j, i, k] for i in range(n) for k in range(V)) == 1)
+        
+        
+    # Demand and capacity
+    for k in range(V):
+        model.add_constraint(sum(q[i] * sum(x[i, j, k] for j in range(n)) for i in range(n)) <= Q)
+        
+    # time window constraint
+    ta[0] = 0
+    w[0] = 0
+    
+#     for j in range(1, n):
+#         model.add_constraint(sum(x[i, j, k] * (ta[i] + s[i] + w[i]) for i in range(n) for k in range(V)) <= ta[j])
+
+    # Converting the quadratic constraint into linear using Big-M
+    M = max(T)
+
+    # Define auxiliary binary variables
+    y = model.binary_var_list(n, name='y')
+
+    # Introduce big-M constraints
+    for j in range(1, n):
+        for i in range(n):
+            for k in range(V):
+                model.add_constraint(ta[j] >= (ta[i] + s[i] + w[i] - M * (1 - x[i, j, k])))
+                model.add_constraint(ta[j] <= (ta[i] + s[i] + w[i] + M * (1 - x[i, j, k])))
+
+    # Enforce that y[j] == 1 if and only if the constraint is active for node j
+    for j in range(1, n):
+        model.add_constraint(y[j] == sum(x[i, j, k] * (ta[i] + s[i] + w[i]) for i in range(n) for k in range(V)))
+
+    for j in range(1, n):
+        model.add_constraint(y[j] * M >= ta[j])
+
+
+    
+    # Constraint on arrival within the time window
+    for i in range(1, n):
+        model.add_constraint(t[i] <= (ta[i] + w[i]))
+        model.add_constraint(ta[i] + w[i] <= T[i])
+
+    # Solve the problem using branch-and-bound
+    solution = model.solve(log_output=True)
+
+    count = 0
+    # Printing the values of decision variables
+    print("Values of decision variable x:")
+    for i in range(n):
+        for j in range(n):
+            for k in range(V):
+                if(x[i, j, k].solution_value > 0.5):
+                    count += 1
+                print(f"x[{i}][{j}][{k}] = {x[i,j,k].solution_value}")
+                
+    print('Here is the count of edges being travelled: ' + f"{count}")
+
+    print("Values of decision variable ta:")
+    for i in range(1, n):
+        print(f"ta[{i}] = {ta[i].solution_value}")
+
+    print("Values of decision variable w:")
+    for i in range(1, n):
+        print(f"w[{i}] = {w[i].solution_value}")
+        
+        
+
+################           input parameters            #####################
+
+import math
+
+n = 11  # 10 customers + 1 depot
+
+x_coordinates = [35, 41, 35, 55, 55, 15, 25, 20, 10, 55, 30, 20]
+y_coordinates = [35, 49, 17, 45, 20, 30, 30, 50, 43, 60, 60, 65]
+
+
+D = np.zeros((11, 11), dtype = float)
+
+for i in range(11):
+    for j in range(11):
+        D[i][j] = round(math.sqrt((x_coordinates[i] - x_coordinates[j]) ** 2 + (y_coordinates[i] - y_coordinates[j]) ** 2), 1)
+
+q = np.array([0, 10, 7, 13, 19, 26, 3, 5, 9, 16, 17])
+
+Q = 200
+s = np.array([0, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10])
+t = np.array([0, 0, 0, 0, 139, 0, 0, 0, 85, 87, 0, 57])
+T = np.array([230, 204, 202, 197, 169, 199, 208, 198, 115, 117, 194, 87])
+V = 25
+
+solution = solve_vrptw(n, D, q, Q, s, t, T, V)
+print(solution)
+
+
+
+##################       Finding the routes using the optimal values of decision vairables     ###################
+from collections import defaultdict
+
+def dfs(graph, start, end, path=[]):
+        path = path + [start]
+        if start == end:
+            return path
+        if start not in graph:
+            return None
+        for node in graph[start]:
+            if node not in path:
+                new_path = dfs(graph, node, end, path)
+                if new_path:
+                    return new_path
+        return None
+
+for k in range(V):
+    edges = []
+    for i in range(n):
+        for j in range(n):
+            if(x[i, j, k].solution_value > 0.5):
+                edges.append([i, j])
+
+
+    # Constructing the graph
+    graph = defaultdict(list)
+    for edge in edges:
+        graph[edge[0]].append(edge[1])
+
+    # Finding the path from 0 to 0
+    path = dfs(graph, 0, 0)
+    if path:
+        print(f"For vehicle number {k}: Path from 0 to 0:", ' -> '.join(map(str, path)))
+    else:
+        print(f"No path found from 0 to 0 for vechicle number {k}.")
