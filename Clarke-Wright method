@@ -1,0 +1,136 @@
+#include<bits/stdc++.h>
+#include<iomanip>
+using namespace std;
+
+// Disjoint Sets
+int parent[20], size[20];
+vector<vector<int>> connections(20, vector<int> ());
+
+void make(int x){
+    parent[x] = x;
+    size[x] = 1;
+}
+
+int root(int x){
+    if(parent[x] == x) return x;
+    return parent[x] = root(parent[x]);
+}
+
+void Union(int a, int b){
+    a = root(a);
+    b = root(b);
+    if(a!=b) {
+            if(size[b]>size[a]) swap(a, b);
+            parent[b] = a;
+            size[a] += size[b];
+    }
+}
+
+// compare function used for sorting
+bool cmp(vector<int> &a, vector<int> &b) {
+    return a[2] > b[2];
+}
+
+bool cmp2(vector<int> &a, vector<int> &b) {
+    return a[1] < b[1];
+}
+
+bool check_capacity(int a, int b, vector<int> &q, int &Q) {
+    vector<int> con1 = connections[root(a)];
+    vector<int> con2 = connections[root(b)];
+
+    int sum1 = 0, sum2 = 0;
+    for(int x: con1) sum1 += x;
+    for(int x: con2) sum2 += x;
+
+    if(sum1 + sum2 <= Q) return true;
+    else return false;
+}
+
+bool check_timings(int a, int b, vector<int> &s, vector<int> &t, vector<int> &T) {
+    vector<int> con1 = connections[root(a)];
+    vector<int> con2 = connections[root(b)];
+
+    vector<vector<int>> v;
+    for(int x: con1) {
+        v.push_back({x, t[x], T[x], s[x]});
+    }
+    sort(v.begin(), v.end(), cmp2);
+
+    int latest_time = 0;
+
+    for(int i = 0; i < v.size(); i++) {
+        if(v[i][2] < latest_time) return false;
+
+        latest_time = v[i][1] + v[i][3];
+    }
+
+    return true;
+}
+
+int main(){
+
+    int n = 11; // 10 customers + 1 depot
+
+    vector<int> x_coordinates = {35, 41, 35, 55, 55, 15, 25, 20, 10, 55, 30, 20};
+    vector<int> y_coordinates = {35, 49, 17, 45, 20, 30, 30, 50, 43, 60, 60, 65};
+
+    vector<vector<float>> D(n, vector<float>(n, 0.0));
+
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < n; ++j) {
+            D[i][j] = round(sqrt(pow(x_coordinates[i] - x_coordinates[j], 2) + pow(y_coordinates[i] - y_coordinates[j], 2)) * 10) / 10.0;
+        }
+    }
+
+    vector<int> q = {0, 10, 7, 13, 19, 26, 3, 5, 9, 16, 17};
+
+    int Q = 200;
+    Q = 23;
+    vector<int> s = {0, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10};
+    vector<int> t = {0, 0, 0, 0, 139, 0, 0, 0, 85, 87, 0, 57};
+    vector<int> T = {230, 204, 202, 197, 169, 199, 208, 198, 115, 117, 194, 87};
+
+    int V = 25;
+
+    // Clarke - Wright Heuristic approach modified for Time Constraints
+
+    vector<vector<int>> savings;
+    for(int i = 1; i < n; i++) {
+        for(int j = i + 1; j < n; j++) {
+            int saving = D[0][i] + D[0][j] - D[i][j];
+
+            savings.push_back({i, j, saving});
+        }
+    }
+
+    sort(savings.begin(), savings.end(), cmp);
+
+    int total_distance = 0;
+    for(int i = 1; i < n; i++) {
+        total_distance += 2 * D[0][i];
+    }
+
+    cout << total_distance << endl;
+
+    for(int i = 1; i < n; i++) {
+        make(i);
+        connections[i].push_back(i);
+    }
+
+    for(auto saving: savings) {
+        int a = saving[0];
+        int b = saving[1];
+
+        if(root(a) == root(b)) continue;
+        if(check_capacity(a, b, q, Q) == false) continue;
+        if(check_timings(a, b, s, t, T) == false) continue;
+
+        total_distance -= saving[2];
+        Union(a, b);
+    }
+
+    cout << "Minimized total distance to be travelled : " << total_distance << endl;
+ 
+    return 0;
+}
